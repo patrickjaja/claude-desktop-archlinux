@@ -1,3 +1,5 @@
+2025-01-11: [rlmattax](https://github.com/rlmattax) updated link from 0.7.7 to 0.7.8.
+
 ***THIS IS AN UNOFFICIAL BUILD SCRIPT!***
 
 If you run into an issue with this build script, make an issue here. Don't bug Anthropic about it - they already have enough on their plates.
