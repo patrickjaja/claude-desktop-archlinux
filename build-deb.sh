@@ -284,6 +284,7 @@ Type=Application
 Terminal=false
 Categories=Office;Utility;
 MimeType=x-scheme-handler/claude;
+StartupWMClass=Claude
 EOF
 
 # Create launcher script
