@@ -25,12 +25,12 @@ For Debian-based distributions (Debian, Ubuntu, Linux Mint, MX Linux, etc.), you
 
 ```bash
 # Clone this repository
-git clone https://github.com/yourusername/claude-desktop-linux.git
+git clone https://github.com/aaddrick/claude-desktop-debian.git
 cd claude-desktop-linux
 
 # Build the package
 sudo ./build-deb.sh
-sudo dpkg -i build/electron-app/claude-desktop_0.7.7_amd64.deb
+sudo dpkg -i ./build/electron-app/claude-desktop_0.7.8_amd64.deb
 
 # The script will automatically:
 # - Check for and install required dependencies
