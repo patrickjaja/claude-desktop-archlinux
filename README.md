@@ -9,6 +9,9 @@ If you run into an issue with this build script, make an issue here. Don't bug A
 This project was inspired by [k3d3's claude-desktop-linux-flake](https://github.com/k3d3/claude-desktop-linux-flake) and their [Reddit post](https://www.reddit.com/r/ClaudeAI/comments/1hgsmpq/i_successfully_ran_claude_desktop_natively_on/) about running Claude Desktop natively on Linux. Their work provided valuable insights into the application's structure and the native bindings implementation.
 
 Supports MCP!
+
+Location of the MCP-configuration file is: `~/.config/Claude/claude_desktop_config.json`
+
 ![image](https://github.com/user-attachments/assets/93080028-6f71-48bd-8e59-5149d148cd45)
 
 Supports the Ctrl+Alt+Space popup!
