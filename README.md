@@ -33,7 +33,7 @@ cd claude-desktop-linux
 
 # Build the package
 sudo ./build-deb.sh
-sudo dpkg -i ./build/electron-app/claude-desktop_0.7.8_amd64.deb
+sudo dpkg -i ./build/electron-app/claude-desktop_0.7.9_amd64.deb
 
 # The script will automatically:
 # - Check for and install required dependencies
