@@ -29,7 +29,7 @@ For Debian-based distributions (Debian, Ubuntu, Linux Mint, MX Linux, etc.), you
 ```bash
 # Clone this repository
 git clone https://github.com/aaddrick/claude-desktop-debian.git
-cd claude-desktop-linux
+cd claude-desktop-debian
 
 # Build the package
 sudo ./build-deb.sh
