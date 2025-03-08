@@ -1,4 +1,5 @@
-2025-01-11: [rlmattax](https://github.com/rlmattax) updated link from 0.7.7 to 0.7.8.
+## LOOKING FOR NEW MAINTAINER
+I've had fun with this, but I'm ready to pass the torch. Let me know if you'd like to take a swing at this!
 
 ***THIS IS AN UNOFFICIAL BUILD SCRIPT!***
 
