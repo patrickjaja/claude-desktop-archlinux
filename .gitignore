@@ -18,3 +18,4 @@ Thumbs.db
 *.AppImage
 *.desktop
 *.deb
+.idea
