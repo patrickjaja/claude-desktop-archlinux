@@ -1,514 +1,316 @@
 #!/bin/bash
 set -euo pipefail
 
-# --- Architecture Detection ---
-echo -e "\033[1;36m--- Architecture Detection ---\033[0m"
-echo "⚙️ Detecting system architecture..."
-HOST_ARCH=$(dpkg --print-architecture)
-echo "Detected host architecture: $HOST_ARCH"
-cat /etc/os-release && uname -m && dpkg --print-architecture
+# Arch Linux Claude Desktop Build Script
 
-# Set variables based on detected architecture
-if [ "$HOST_ARCH" = "amd64" ]; then
-    CLAUDE_DOWNLOAD_URL="https://storage.googleapis.com/osprey-downloads-c02f6a0d-347c-492b-a752-3e0651722e97/nest-win-x64/Claude-Setup-x64.exe"
-    ARCHITECTURE="amd64"
-    CLAUDE_EXE_FILENAME="Claude-Setup-x64.exe"
-    echo "Configured for amd64 build."
-elif [ "$HOST_ARCH" = "arm64" ]; then
-    CLAUDE_DOWNLOAD_URL="https://storage.googleapis.com/osprey-downloads-c02f6a0d-347c-492b-a752-3e0651722e97/nest-win-arm64/Claude-Setup-arm64.exe"
-    ARCHITECTURE="arm64"
-    CLAUDE_EXE_FILENAME="Claude-Setup-arm64.exe"
-    echo "Configured for arm64 build."
-else
-    echo "❌ Unsupported architecture: $HOST_ARCH. This script currently supports amd64 and arm64."
-    exit 1
-fi
-echo "Target Architecture (detected): $ARCHITECTURE" # Renamed echo
-echo -e "\033[1;36m--- End Architecture Detection ---\033[0m"
-
-
-if [ ! -f "/etc/debian_version" ]; then
-    echo "❌ This script requires a Debian-based Linux distribution"
+# --- System Checks ---
+if [ ! -f "/etc/arch-release" ]; then
+    echo "❌ This script is designed for Arch Linux"
     exit 1
 fi
 
 if [ "$EUID" -eq 0 ]; then
    echo "❌ This script should not be run using sudo or as the root user."
    echo "   It will prompt for sudo password when needed for specific actions."
-   echo "   Please run as a normal user."
    exit 1
 fi
 
-ORIGINAL_USER=$(whoami)
-ORIGINAL_HOME=$(getent passwd "$ORIGINAL_USER" | cut -d: -f6)
-if [ -z "$ORIGINAL_HOME" ]; then
-    echo "❌ Could not determine home directory for user $ORIGINAL_USER."
-    exit 1
-fi
-echo "Running as user: $ORIGINAL_USER (Home: $ORIGINAL_HOME)"
-
-# Check for NVM and source it if found to ensure npm/npx are available later
-if [ -d "$ORIGINAL_HOME/.nvm" ]; then
-    echo "Found NVM installation for user $ORIGINAL_USER, attempting to activate..."
-    export NVM_DIR="$ORIGINAL_HOME/.nvm"
-    if [ -s "$NVM_DIR/nvm.sh" ]; then
-        # Source NVM script to set up NVM environment variables temporarily
-        # shellcheck disable=SC1091
-        \. "$NVM_DIR/nvm.sh" # This loads nvm
-        # Initialize and find the path to the currently active or default Node version's bin directory
-        NODE_BIN_PATH=""
-        NODE_BIN_PATH=$(nvm which current | xargs dirname 2>/dev/null || find "$NVM_DIR/versions/node" -maxdepth 2 -type d -name 'bin' | sort -V | tail -n 1)
-
-        if [ -n "$NODE_BIN_PATH" ] && [ -d "$NODE_BIN_PATH" ]; then
-            echo "Adding NVM Node bin path to PATH: $NODE_BIN_PATH"
-            export PATH="$NODE_BIN_PATH:$PATH"
-        else
-            echo "Warning: Could not determine NVM Node bin path. npm/npx might not be found."
-        fi
-    else
-        echo "Warning: nvm.sh script not found or not sourceable."
-    fi
-fi # End of if [ -d "$ORIGINAL_HOME/.nvm" ] check
-
-
-echo "System Information:"
-echo "Distribution: $(grep "PRETTY_NAME" /etc/os-release | cut -d'"' -f2)"
-echo "Debian version: $(cat /etc/debian_version)"
-echo "Target Architecture: $ARCHITECTURE" 
+# --- Configuration ---
 PACKAGE_NAME="claude-desktop"
 MAINTAINER="Claude Desktop Linux Maintainers"
 DESCRIPTION="Claude Desktop for Linux"
-PROJECT_ROOT="$(pwd)" WORK_DIR="$PROJECT_ROOT/build" APP_STAGING_DIR="$WORK_DIR/electron-app" VERSION="" 
-echo -e "\033[1;36m--- Argument Parsing ---\033[0m"
-BUILD_FORMAT="deb"    CLEANUP_ACTION="yes"  TEST_FLAGS_MODE=false
-while [[ $# -gt 0 ]]; do
-    key="$1"
-    case $key in
-        -b|--build)
-        if [[ -z "$2" || "$2" == -* ]]; then              echo "❌ Error: Argument for $1 is missing" >&2; exit 1
-        fi
-        BUILD_FORMAT="$2"
-        shift 2 ;; # Shift past flag and value
-        -c|--clean)
-        if [[ -z "$2" || "$2" == -* ]]; then              echo "❌ Error: Argument for $1 is missing" >&2; exit 1
-        fi
-        CLEANUP_ACTION="$2"
-        shift 2 ;; # Shift past flag and value
-        --test-flags)
-        TEST_FLAGS_MODE=true
-        shift # past argument
+PROJECT_ROOT="$(pwd)"
+WORK_DIR="$PROJECT_ROOT/build"
+APP_STAGING_DIR="$WORK_DIR/electron-app"
+
+# --- Architecture Detection ---
+echo "⚙️ Detecting system architecture..."
+MACHINE_ARCH=$(uname -m)
+case "$MACHINE_ARCH" in
+    x86_64)
+        HOST_ARCH="amd64"
+        CLAUDE_DOWNLOAD_URL="https://storage.googleapis.com/osprey-downloads-c02f6a0d-347c-492b-a752-3e0651722e97/nest-win-x64/Claude-Setup-x64.exe"
+        CLAUDE_EXE_FILENAME="Claude-Setup-x64.exe"
         ;;
-        -h|--help)
-        echo "Usage: $0 [--build deb|appimage] [--clean yes|no] [--test-flags]"
-        echo "  --build: Specify the build format (deb or appimage). Default: deb"
-        echo "  --clean: Specify whether to clean intermediate build files (yes or no). Default: yes"
-        echo "  --test-flags: Parse flags, print results, and exit without building."
-        exit 0
+    aarch64)
+        HOST_ARCH="arm64"
+        CLAUDE_DOWNLOAD_URL="https://storage.googleapis.com/osprey-downloads-c02f6a0d-347c-492b-a752-3e0651722e97/nest-win-arm64/Claude-Setup-arm64.exe"
+        CLAUDE_EXE_FILENAME="Claude-Setup-arm64.exe"
         ;;
-        *)            echo "❌ Unknown option: $1" >&2
-        echo "Use -h or --help for usage information." >&2
+    *)
+        echo "❌ Unsupported architecture: $MACHINE_ARCH"
         exit 1
         ;;
+esac
+echo "✓ Detected architecture: $MACHINE_ARCH ($HOST_ARCH)"
+
+# --- Argument Parsing ---
+CLEANUP_ACTION="yes"
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -c|--clean)
+            if [[ -z "$2" || "$2" == -* ]]; then
+                echo "❌ Error: Argument for $1 is missing" >&2
+                exit 1
+            fi
+            CLEANUP_ACTION="$2"
+            shift 2
+            ;;
+        -h|--help)
+            echo "Usage: $0 [--clean yes|no]"
+            echo "  --clean: Specify whether to clean intermediate build files (yes or no). Default: yes"
+            exit 0
+            ;;
+        *)
+            echo "❌ Unknown option: $1"
+            echo "Use -h or --help for usage information."
+            exit 1
+            ;;
     esac
 done
 
-# Validate arguments
-BUILD_FORMAT=$(echo "$BUILD_FORMAT" | tr '[:upper:]' '[:lower:]') CLEANUP_ACTION=$(echo "$CLEANUP_ACTION" | tr '[:upper:]' '[:lower:]')
-if [[ "$BUILD_FORMAT" != "deb" && "$BUILD_FORMAT" != "appimage" ]]; then
-    echo "❌ Invalid build format specified: '$BUILD_FORMAT'. Must be 'deb' or 'appimage'." >&2
-    exit 1
-fi
+CLEANUP_ACTION=$(echo "$CLEANUP_ACTION" | tr '[:upper:]' '[:lower:]')
 if [[ "$CLEANUP_ACTION" != "yes" && "$CLEANUP_ACTION" != "no" ]]; then
-    echo "❌ Invalid cleanup option specified: '$CLEANUP_ACTION'. Must be 'yes' or 'no'." >&2
+    echo "❌ Invalid cleanup option: '$CLEANUP_ACTION'. Must be 'yes' or 'no'."
     exit 1
 fi
 
-echo "Selected build format: $BUILD_FORMAT"
-echo "Cleanup intermediate files: $CLEANUP_ACTION"
-
-PERFORM_CLEANUP=false
-if [ "$CLEANUP_ACTION" = "yes" ]; then
-    PERFORM_CLEANUP=true
+# --- Node.js Check ---
+echo "Checking Node.js installation..."
+if ! command -v node &> /dev/null; then
+    echo "❌ Node.js not found. Please install nodejs package."
+    exit 1
 fi
-echo -e "\033[1;36m--- End Argument Parsing ---\033[0m"
+NODE_VERSION=$(node --version)
+echo "✓ Node.js found: $NODE_VERSION"
 
-# Exit early if --test-flags mode is enabled
-if [ "$TEST_FLAGS_MODE" = true ]; then
-    echo "--- Test Flags Mode Enabled ---"
-    # Target Architecture is implicitly detected now
-    echo "Build Format: $BUILD_FORMAT"
-    echo "Clean Action: $CLEANUP_ACTION"
-    echo "Exiting without build."
-    exit 0
-fi
-
-
-check_command() {
-    if ! command -v "$1" &> /dev/null; then
-        echo "❌ $1 not found"
-        return 1
-    else
-        echo "✓ $1 found"
-        return 0
-    fi
-}
-
+# --- Dependency Check ---
 echo "Checking dependencies..."
 DEPS_TO_INSTALL=""
-COMMON_DEPS="p7zip wget wrestool icotool convert npx"
-DEB_DEPS="dpkg-deb"
-APPIMAGE_DEPS="" 
-ALL_DEPS_TO_CHECK="$COMMON_DEPS"
-if [ "$BUILD_FORMAT" = "deb" ]; then
-    ALL_DEPS_TO_CHECK="$ALL_DEPS_TO_CHECK $DEB_DEPS"
-elif [ "$BUILD_FORMAT" = "appimage" ]; then
-    ALL_DEPS_TO_CHECK="$ALL_DEPS_TO_CHECK $APPIMAGE_DEPS"
-fi
 
-for cmd in $ALL_DEPS_TO_CHECK; do
-    if ! check_command "$cmd"; then
-        case "$cmd" in
-            "p7zip") DEPS_TO_INSTALL="$DEPS_TO_INSTALL p7zip-full" ;;
-            "wget") DEPS_TO_INSTALL="$DEPS_TO_INSTALL wget" ;;
-            "wrestool"|"icotool") DEPS_TO_INSTALL="$DEPS_TO_INSTALL icoutils" ;;
-            "convert") DEPS_TO_INSTALL="$DEPS_TO_INSTALL imagemagick" ;;
-            "npx") DEPS_TO_INSTALL="$DEPS_TO_INSTALL nodejs npm" ;;
-            "dpkg-deb") DEPS_TO_INSTALL="$DEPS_TO_INSTALL dpkg-dev" ;;
-        esac
+# Required commands and their Arch packages
+declare -A REQUIRED_DEPS=(
+    ["7z"]="p7zip"
+    ["wget"]="wget"
+    ["wrestool"]="icoutils"
+    ["icotool"]="icoutils"
+    ["convert"]="imagemagick"
+    ["npm"]="npm"
+    ["makepkg"]="pacman"
+)
+
+for cmd in "${!REQUIRED_DEPS[@]}"; do
+    if ! command -v "$cmd" &> /dev/null; then
+        DEPS_TO_INSTALL="$DEPS_TO_INSTALL ${REQUIRED_DEPS[$cmd]}"
     fi
 done
 
 if [ -n "$DEPS_TO_INSTALL" ]; then
-    echo "System dependencies needed: $DEPS_TO_INSTALL"
-    echo "Attempting to install using sudo..."
-        if ! sudo -v; then
-        echo "❌ Failed to validate sudo credentials. Please ensure you can run sudo."
+    # Remove duplicates
+    DEPS_TO_INSTALL=$(echo "$DEPS_TO_INSTALL" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+    echo "Installing dependencies: $DEPS_TO_INSTALL"
+    if ! sudo pacman -S --needed --noconfirm $DEPS_TO_INSTALL; then
+        echo "❌ Failed to install dependencies"
         exit 1
     fi
-        if ! sudo apt update; then
-        echo "❌ Failed to run 'sudo apt update'."
-        exit 1
-    fi
-    # Here on purpose no "" to expand the 'list', thus
-    # shellcheck disable=SC2086
-    if ! sudo apt install -y $DEPS_TO_INSTALL; then
-         echo "❌ Failed to install dependencies using 'sudo apt install'."
-         exit 1
-    fi
-    echo "✓ System dependencies installed successfully via sudo."
 fi
+echo "✓ All dependencies satisfied"
 
+# --- Setup Build Directory ---
 rm -rf "$WORK_DIR"
-mkdir -p "$WORK_DIR"
-mkdir -p "$APP_STAGING_DIR" 
-echo -e "\033[1;36m--- Electron & Asar Handling ---\033[0m"
-CHOSEN_ELECTRON_MODULE_PATH="" ASAR_EXEC=""
+mkdir -p "$WORK_DIR" "$APP_STAGING_DIR"
 
-echo "Ensuring local Electron and Asar installation in $WORK_DIR..."
+# --- Install Electron and Asar ---
+echo "Installing Electron and Asar..."
 cd "$WORK_DIR"
-if [ ! -f "package.json" ]; then
-    echo "Creating temporary package.json in $WORK_DIR for local install..."
-    echo '{"name":"claude-desktop-build","version":"0.0.1","private":true}' > package.json
+echo '{"name":"claude-desktop-build","version":"0.0.1","private":true}' > package.json
+
+if ! npm install --no-save electron @electron/asar; then
+    echo "❌ Failed to install Electron and Asar"
+    exit 1
 fi
 
 ELECTRON_DIST_PATH="$WORK_DIR/node_modules/electron/dist"
-ASAR_BIN_PATH="$WORK_DIR/node_modules/.bin/asar"
+ASAR_EXEC="$(realpath "$WORK_DIR/node_modules/.bin/asar")"
 
-INSTALL_NEEDED=false
-if [ ! -d "$ELECTRON_DIST_PATH" ]; then
-    echo "Electron distribution not found."
-    INSTALL_NEEDED=true
-fi
-if [ ! -f "$ASAR_BIN_PATH" ]; then
-    echo "Asar binary not found."
-    INSTALL_NEEDED=true
-fi
-
-if [ "$INSTALL_NEEDED" = true ]; then
-    echo "Installing Electron and Asar locally into $WORK_DIR..."
-        if ! npm install --no-save electron @electron/asar; then
-        echo "❌ Failed to install Electron and/or Asar locally."
-        cd "$PROJECT_ROOT"
-        exit 1
-    fi
-    echo "✓ Electron and Asar installation command finished."
-else
-    echo "✓ Local Electron distribution and Asar binary already present."
-fi
-
-if [ -d "$ELECTRON_DIST_PATH" ]; then
-    echo "✓ Found Electron distribution directory at $ELECTRON_DIST_PATH."
-    CHOSEN_ELECTRON_MODULE_PATH="$(realpath "$WORK_DIR/node_modules/electron")"
-    echo "✓ Setting Electron module path for copying to $CHOSEN_ELECTRON_MODULE_PATH."
-else
-    echo "❌ Failed to find Electron distribution directory at '$ELECTRON_DIST_PATH' after installation attempt."
-    echo "   Cannot proceed without the Electron distribution files."
-    cd "$PROJECT_ROOT"     exit 1
-fi
-
-if [ -f "$ASAR_BIN_PATH" ]; then
-    ASAR_EXEC="$(realpath "$ASAR_BIN_PATH")"
-    echo "✓ Found local Asar binary at $ASAR_EXEC."
-else
-    echo "❌ Failed to find Asar binary at '$ASAR_BIN_PATH' after installation attempt."
-    cd "$PROJECT_ROOT"
+if [ ! -d "$ELECTRON_DIST_PATH" ] || [ ! -f "$ASAR_EXEC" ]; then
+    echo "❌ Electron or Asar installation incomplete"
     exit 1
 fi
+echo "✓ Electron and Asar installed"
 
-cd "$PROJECT_ROOT" 
-if [ -z "$CHOSEN_ELECTRON_MODULE_PATH" ] || [ ! -d "$CHOSEN_ELECTRON_MODULE_PATH" ]; then
-     echo "❌ Critical error: Could not resolve a valid Electron module path to copy."
-     exit 1
-fi
-echo "Using Electron module path: $CHOSEN_ELECTRON_MODULE_PATH"
-echo "Using asar executable: $ASAR_EXEC"
-
-
-echo -e "\033[1;36m--- Download the latest Claude executable ---\033[0m"
-echo "📥 Downloading Claude Desktop installer for $ARCHITECTURE..."
+# --- Download Claude Installer ---
+echo "📥 Downloading Claude Desktop installer..."
 CLAUDE_EXE_PATH="$WORK_DIR/$CLAUDE_EXE_FILENAME"
 if ! wget -O "$CLAUDE_EXE_PATH" "$CLAUDE_DOWNLOAD_URL"; then
-    echo "❌ Failed to download Claude Desktop installer from $CLAUDE_DOWNLOAD_URL"
+    echo "❌ Failed to download Claude Desktop installer"
     exit 1
 fi
-echo "✓ Download complete: $CLAUDE_EXE_FILENAME"
 
-echo "📦 Extracting resources from $CLAUDE_EXE_FILENAME into separate directory..."
+# --- Extract Resources ---
+echo "📦 Extracting resources..."
 CLAUDE_EXTRACT_DIR="$WORK_DIR/claude-extract"
 mkdir -p "$CLAUDE_EXTRACT_DIR"
-if ! 7z x -y "$CLAUDE_EXE_PATH" -o"$CLAUDE_EXTRACT_DIR"; then     echo "❌ Failed to extract installer"
-    cd "$PROJECT_ROOT" && exit 1
+if ! 7z x -y "$CLAUDE_EXE_PATH" -o"$CLAUDE_EXTRACT_DIR"; then
+    echo "❌ Failed to extract installer"
+    exit 1
 fi
 
-cd "$CLAUDE_EXTRACT_DIR" # Change into the extract dir to find files
-NUPKG_PATH_RELATIVE=$(find . -maxdepth 1 -name "AnthropicClaude-*.nupkg" | head -1)
-if [ -z "$NUPKG_PATH_RELATIVE" ]; then
-    echo "❌ Could not find AnthropicClaude nupkg file in $CLAUDE_EXTRACT_DIR"
-    cd "$PROJECT_ROOT" && exit 1
+cd "$CLAUDE_EXTRACT_DIR"
+NUPKG_PATH=$(find . -maxdepth 1 -name "AnthropicClaude-*.nupkg" | head -1)
+if [ -z "$NUPKG_PATH" ]; then
+    echo "❌ Could not find AnthropicClaude nupkg file"
+    exit 1
 fi
-NUPKG_PATH="$CLAUDE_EXTRACT_DIR/$NUPKG_PATH_RELATIVE" echo "Found nupkg: $NUPKG_PATH_RELATIVE (in $CLAUDE_EXTRACT_DIR)"
 
-VERSION=$(echo "$NUPKG_PATH_RELATIVE" | LC_ALL=C grep -oP 'AnthropicClaude-\K[0-9]+\.[0-9]+\.[0-9]+(?=-full|-arm64-full)')
+# Extract version
+VERSION=$(echo "$NUPKG_PATH" | grep -oP 'AnthropicClaude-\K[0-9]+\.[0-9]+\.[0-9]+(?=-full|-arm64-full)')
 if [ -z "$VERSION" ]; then
-    echo "❌ Could not extract version from nupkg filename: $NUPKG_PATH_RELATIVE"
-    cd "$PROJECT_ROOT" && exit 1
+    echo "❌ Could not extract version from nupkg filename"
+    exit 1
 fi
 echo "✓ Detected Claude version: $VERSION"
 
-if ! 7z x -y "$NUPKG_PATH_RELATIVE"; then     echo "❌ Failed to extract nupkg"
-    cd "$PROJECT_ROOT" && exit 1
-fi
-echo "✓ Resources extracted from nupkg"
-
-EXE_RELATIVE_PATH="lib/net45/claude.exe" # Check if this path is correct for arm64 too
-if [ ! -f "$EXE_RELATIVE_PATH" ]; then
-    echo "❌ Cannot find claude.exe at expected path within extraction dir: $CLAUDE_EXTRACT_DIR/$EXE_RELATIVE_PATH"
-    cd "$PROJECT_ROOT" && exit 1
-fi
-echo "🎨 Processing icons from $EXE_RELATIVE_PATH..."
-if ! wrestool -x -t 14 "$EXE_RELATIVE_PATH" -o claude.ico; then     echo "❌ Failed to extract icons from exe"
-    cd "$PROJECT_ROOT" && exit 1
+# Extract nupkg
+if ! 7z x -y "$NUPKG_PATH"; then
+    echo "❌ Failed to extract nupkg"
+    exit 1
 fi
 
-if ! icotool -x claude.ico; then     echo "❌ Failed to convert icons"
-    cd "$PROJECT_ROOT" && exit 1
+# --- Process Icons ---
+echo "🎨 Processing icons..."
+EXE_PATH="lib/net45/claude.exe"
+if [ ! -f "$EXE_PATH" ]; then
+    echo "❌ Cannot find claude.exe"
+    exit 1
 fi
+
+wrestool -x -t 14 "$EXE_PATH" -o claude.ico
+icotool -x claude.ico
 cp claude_*.png "$WORK_DIR/"
-echo "✓ Icons processed and copied to $WORK_DIR"
 
+# --- Process app.asar ---
 echo "⚙️ Processing app.asar..."
-cp "$CLAUDE_EXTRACT_DIR/lib/net45/resources/app.asar" "$APP_STAGING_DIR/"
-cp -a "$CLAUDE_EXTRACT_DIR/lib/net45/resources/app.asar.unpacked" "$APP_STAGING_DIR/" 
-cd "$APP_STAGING_DIR" 
+cp "lib/net45/resources/app.asar" "$APP_STAGING_DIR/"
+cp -a "lib/net45/resources/app.asar.unpacked" "$APP_STAGING_DIR/"
+
+cd "$APP_STAGING_DIR"
 "$ASAR_EXEC" extract app.asar app.asar.contents
 
-echo "Creating stub native module..."
-cat > app.asar.contents/node_modules/claude-native/index.js << EOF
+# Create stub native module
+cat > app.asar.contents/node_modules/claude-native/index.js << 'EOF'
 // Stub implementation of claude-native using KeyboardKey enum values
 const KeyboardKey = { Backspace: 43, Tab: 280, Enter: 261, Shift: 272, Control: 61, Alt: 40, CapsLock: 56, Escape: 85, Space: 276, PageUp: 251, PageDown: 250, End: 83, Home: 154, LeftArrow: 175, UpArrow: 282, RightArrow: 262, DownArrow: 81, Delete: 79, Meta: 187 };
 Object.freeze(KeyboardKey);
 module.exports = { getWindowsVersion: () => "10.0.0", setWindowEffect: () => {}, removeWindowEffect: () => {}, getIsMaximized: () => false, flashFrame: () => {}, clearFlashFrame: () => {}, showNotification: () => {}, setProgressBar: () => {}, clearProgressBar: () => {}, setOverlayIcon: () => {}, clearOverlayIcon: () => {}, KeyboardKey };
 EOF
 
-mkdir -p app.asar.contents/resources
+# Copy resources
 mkdir -p app.asar.contents/resources/i18n
 cp "$CLAUDE_EXTRACT_DIR/lib/net45/resources/Tray"* app.asar.contents/resources/
 cp "$CLAUDE_EXTRACT_DIR/lib/net45/resources/"*-*.json app.asar.contents/resources/i18n/
 
-echo "##############################################################"
-echo "Removing "'!'" from 'if ("'!'"isWindows && isMainWindow) return null;'"
-echo "detection flag to to enable title bar"
-
-echo "Current working directory: '$PWD'"
-
-SEARCH_BASE="app.asar.contents/.vite/renderer/main_window/assets"
-TARGET_PATTERN="MainWindowPage-*.js"
-
-echo "Searching for '$TARGET_PATTERN' within '$SEARCH_BASE'..."
-# Find the target file recursively (ensure only one matches)
-TARGET_FILES=$(find "$SEARCH_BASE" -type f -name "$TARGET_PATTERN")
-# Count non-empty lines to get the number of files found
-NUM_FILES=$(echo "$TARGET_FILES" | grep -c .)
-
-if [ "$NUM_FILES" -eq 0 ]; then
-  echo "Error: No file matching '$TARGET_PATTERN' found within '$SEARCH_BASE'." >&2
-  exit 1
-elif [ "$NUM_FILES" -gt 1 ]; then
-  echo "Error: Expected exactly one file matching '$TARGET_PATTERN' within '$SEARCH_BASE', but found $NUM_FILES." >&2
-  echo "Found files:" >&2
-  echo "$TARGET_FILES" >&2
-  exit 1
-else
-  # Exactly one file found
-  TARGET_FILE="$TARGET_FILES" # Assign the found file path
-  echo "Found target file: $TARGET_FILE"
-  echo "Attempting to replace patterns like 'if(!VAR1 && VAR2)' with 'if(VAR1 && VAR2)' in $TARGET_FILE..."
-  # Use character classes [a-zA-Z]+ to match minified variable names
-  # Capture group 1: first variable name
-  # Capture group 2: second variable name
-  sed -i -E 's/if\(!([a-zA-Z]+)[[:space:]]*&&[[:space:]]*([a-zA-Z]+)\)/if(\1 \&\& \2)/g' "$TARGET_FILE"
-
-  # Verification: Check if the original pattern structure still exists
-  if ! grep -q -E 'if\(![a-zA-Z]+[[:space:]]*&&[[:space:]]*[a-zA-Z]+\)' "$TARGET_FILE"; then
-    echo "Successfully replaced patterns like 'if(!VAR1 && VAR2)' with 'if(VAR1 && VAR2)' in $TARGET_FILE"
-  else
-    echo "Error: Failed to replace patterns like 'if(!VAR1 && VAR2)' in $TARGET_FILE. Check file contents." >&2
+# Fix title bar detection
+echo "Fixing title bar detection..."
+TARGET_FILE=$(find app.asar.contents/.vite/renderer/main_window/assets -type f -name "MainWindowPage-*.js")
+if [ -z "$TARGET_FILE" ]; then
+    echo "❌ Could not find MainWindowPage JS file"
     exit 1
-  fi
 fi
-echo "##############################################################"
+sed -i -E 's/if\(!([a-zA-Z]+)[[:space:]]*&&[[:space:]]*([a-zA-Z]+)\)/if(\1 \&\& \2)/g' "$TARGET_FILE"
 
+# Repack asar
 "$ASAR_EXEC" pack app.asar.contents app.asar
 
+# Create unpacked native module
 mkdir -p "$APP_STAGING_DIR/app.asar.unpacked/node_modules/claude-native"
-cat > "$APP_STAGING_DIR/app.asar.unpacked/node_modules/claude-native/index.js" << EOF
-// Stub implementation of claude-native using KeyboardKey enum values
-const KeyboardKey = { Backspace: 43, Tab: 280, Enter: 261, Shift: 272, Control: 61, Alt: 40, CapsLock: 56, Escape: 85, Space: 276, PageUp: 251, PageDown: 250, End: 83, Home: 154, LeftArrow: 175, UpArrow: 282, RightArrow: 262, DownArrow: 81, Delete: 79, Meta: 187 };
-Object.freeze(KeyboardKey);
-module.exports = { getWindowsVersion: () => "10.0.0", setWindowEffect: () => {}, removeWindowEffect: () => {}, getIsMaximized: () => false, flashFrame: () => {}, clearFlashFrame: () => {}, showNotification: () => {}, setProgressBar: () => {}, clearProgressBar: () => {}, setOverlayIcon: () => {}, clearOverlayIcon: () => {}, KeyboardKey };
-EOF
+cp app.asar.contents/node_modules/claude-native/index.js "$APP_STAGING_DIR/app.asar.unpacked/node_modules/claude-native/"
 
-echo "Copying chosen electron installation to staging area..."
-mkdir -p "$APP_STAGING_DIR/node_modules/"
-ELECTRON_DIR_NAME=$(basename "$CHOSEN_ELECTRON_MODULE_PATH")
-echo "Copying from $CHOSEN_ELECTRON_MODULE_PATH to $APP_STAGING_DIR/node_modules/"
-cp -a "$CHOSEN_ELECTRON_MODULE_PATH" "$APP_STAGING_DIR/node_modules/" 
-STAGED_ELECTRON_BIN="$APP_STAGING_DIR/node_modules/$ELECTRON_DIR_NAME/dist/electron"
-if [ -f "$STAGED_ELECTRON_BIN" ]; then
-    echo "Setting executable permission on staged Electron binary: $STAGED_ELECTRON_BIN"
-    chmod +x "$STAGED_ELECTRON_BIN"
-else
-    echo "Warning: Staged Electron binary not found at expected path: $STAGED_ELECTRON_BIN"
-fi
-
-echo "✓ app.asar processed and staged in $APP_STAGING_DIR"
+# Copy Electron
+echo "Copying Electron distribution..."
+mkdir -p "$APP_STAGING_DIR/node_modules/electron"
+cp -a "$WORK_DIR/node_modules/electron"/* "$APP_STAGING_DIR/node_modules/electron/"
+chmod +x "$APP_STAGING_DIR/node_modules/electron/dist/electron"
 
 cd "$PROJECT_ROOT"
 
-echo -e "\033[1;36m--- Call Packaging Script ---\033[0m"
-FINAL_OUTPUT_PATH="" FINAL_DESKTOP_FILE_PATH="" 
-if [ "$BUILD_FORMAT" = "deb" ]; then
-    echo "📦 Calling Debian packaging script for $ARCHITECTURE..."
-    chmod +x scripts/build-deb-package.sh
-    if ! scripts/build-deb-package.sh \
-        "$VERSION" "$ARCHITECTURE" "$WORK_DIR" "$APP_STAGING_DIR" \
-        "$PACKAGE_NAME" "$MAINTAINER" "$DESCRIPTION"; then
-        echo "❌ Debian packaging script failed."
-        exit 1
-    fi
-    DEB_FILE=$(find "$WORK_DIR" -maxdepth 1 -name "${PACKAGE_NAME}_${VERSION}_${ARCHITECTURE}.deb" | head -n 1)
-    echo "✓ Debian Build complete!"
-    if [ -n "$DEB_FILE" ] && [ -f "$DEB_FILE" ]; then
-        FINAL_OUTPUT_PATH="./$(basename "$DEB_FILE")" # Set final path using basename directly
-        mv "$DEB_FILE" "$FINAL_OUTPUT_PATH"
-        echo "Package created at: $FINAL_OUTPUT_PATH"
-    else
-        echo "Warning: Could not determine final .deb file path from $WORK_DIR for ${ARCHITECTURE}."
-        FINAL_OUTPUT_PATH="Not Found"
-    fi
+# --- Build Arch Package ---
+echo "📦 Building Arch Linux package..."
+PKGBUILD_DIR="$WORK_DIR/pkgbuild"
+mkdir -p "$PKGBUILD_DIR"
 
-elif [ "$BUILD_FORMAT" = "appimage" ]; then
-    echo "📦 Calling AppImage packaging script for $ARCHITECTURE..."
-    chmod +x scripts/build-appimage.sh
-    if ! scripts/build-appimage.sh \
-        "$VERSION" "$ARCHITECTURE" "$WORK_DIR" "$APP_STAGING_DIR" "$PACKAGE_NAME"; then
-        echo "❌ AppImage packaging script failed."
-        exit 1
-    fi
-    APPIMAGE_FILE=$(find "$WORK_DIR" -maxdepth 1 -name "${PACKAGE_NAME}-${VERSION}-${ARCHITECTURE}.AppImage" | head -n 1)
-    echo "✓ AppImage Build complete!"
-    if [ -n "$APPIMAGE_FILE" ] && [ -f "$APPIMAGE_FILE" ]; then
-        FINAL_OUTPUT_PATH="./$(basename "$APPIMAGE_FILE")" 
-        mv "$APPIMAGE_FILE" "$FINAL_OUTPUT_PATH"
-        echo "Package created at: $FINAL_OUTPUT_PATH"
+cat > "$PKGBUILD_DIR/PKGBUILD" << EOF
+# Maintainer: $MAINTAINER
+pkgname=$PACKAGE_NAME
+pkgver=$VERSION
+pkgrel=1
+pkgdesc="$DESCRIPTION"
+arch=('$MACHINE_ARCH')
+url="https://claude.ai"
+license=('custom')
+depends=('electron' 'nodejs')
+makedepends=('npm' 'asar')
+source=()
+sha256sums=()
 
-        echo -e "\033[1;36m--- Generate .desktop file for AppImage ---\033[0m"
-        FINAL_DESKTOP_FILE_PATH="./${PACKAGE_NAME}-appimage.desktop"
-        echo "📝 Generating .desktop file for AppImage at $FINAL_DESKTOP_FILE_PATH..."
-        cat > "$FINAL_DESKTOP_FILE_PATH" << EOF
+package() {
+    # Create directories
+    install -dm755 "\$pkgdir/usr/lib/\$pkgname"
+    install -dm755 "\$pkgdir/usr/bin"
+    install -dm755 "\$pkgdir/usr/share/applications"
+    install -dm755 "\$pkgdir/usr/share/icons/hicolor/256x256/apps"
+    
+    # Copy application files
+    cp -r "$APP_STAGING_DIR"/* "\$pkgdir/usr/lib/\$pkgname/"
+    
+    # Create launcher script
+    cat > "\$pkgdir/usr/bin/\$pkgname" << 'LAUNCHER'
+#!/bin/bash
+exec electron /usr/lib/$PACKAGE_NAME/app.asar "\$@"
+LAUNCHER
+    chmod +x "\$pkgdir/usr/bin/\$pkgname"
+    
+    # Install desktop file
+    cat > "\$pkgdir/usr/share/applications/\$pkgname.desktop" << DESKTOP
 [Desktop Entry]
-Name=Claude (AppImage)
-Comment=Claude Desktop (AppImage Version $VERSION)
-Exec=$(basename "$FINAL_OUTPUT_PATH") %u
-Icon=claude-desktop
+Name=Claude
+Comment=Claude Desktop
+Exec=$PACKAGE_NAME %u
+Icon=$PACKAGE_NAME
 Type=Application
 Terminal=false
 Categories=Office;Utility;Network;
 MimeType=x-scheme-handler/claude;
 StartupWMClass=Claude
-X-AppImage-Version=$VERSION
-X-AppImage-Name=Claude Desktop (AppImage)
+DESKTOP
+    
+    # Install icon
+    install -Dm644 "$WORK_DIR/claude_6_256x256x32.png" "\$pkgdir/usr/share/icons/hicolor/256x256/apps/\$pkgname.png"
+}
 EOF
-        echo "✓ .desktop file generated."
 
-    else
-        echo "Warning: Could not determine final .AppImage file path from $WORK_DIR for ${ARCHITECTURE}."
-        FINAL_OUTPUT_PATH="Not Found"
-    fi
-fi
-
-
-echo -e "\033[1;36m--- Cleanup ---\033[0m"
-if [ "$PERFORM_CLEANUP" = true ]; then     echo "🧹 Cleaning up intermediate build files in $WORK_DIR..."
-        if rm -rf "$WORK_DIR"; then
-        echo "✓ Cleanup complete ($WORK_DIR removed)."
-    else
-        echo "⚠️ Cleanup command (rm -rf $WORK_DIR) failed."
+echo "Building package..."
+cd "$PKGBUILD_DIR"
+if makepkg -f; then
+    PKG_FILE=$(find . -maxdepth 1 -name "*.pkg.tar.*" | head -n 1)
+    if [ -n "$PKG_FILE" ] && [ -f "$PKG_FILE" ]; then
+        FINAL_OUTPUT_PATH="$PROJECT_ROOT/$(basename "$PKG_FILE")"
+        mv "$PKG_FILE" "$FINAL_OUTPUT_PATH"
+        echo "✓ Package created: $FINAL_OUTPUT_PATH"
     fi
 else
-    echo "Skipping cleanup of intermediate build files in $WORK_DIR."
+    echo "❌ Failed to build package"
+    exit 1
 fi
 
+cd "$PROJECT_ROOT"
 
-echo "✅ Build process finished."
-
-echo -e "\n\033[1;34m====== Next Steps ======\033[0m"
-if [ "$BUILD_FORMAT" = "deb" ]; then
-    if [ "$FINAL_OUTPUT_PATH" != "Not Found" ] && [ -e "$FINAL_OUTPUT_PATH" ]; then
-        echo -e "📦 To install the Debian package, run:"
-        echo -e "   \033[1;32msudo apt install $FINAL_OUTPUT_PATH\033[0m"
-        echo -e "   (or \`sudo dpkg -i $FINAL_OUTPUT_PATH\`)"
-    else
-        echo -e "⚠️ Debian package file not found. Cannot provide installation instructions."
-    fi
-elif [ "$BUILD_FORMAT" = "appimage" ]; then
-    if [ "$FINAL_OUTPUT_PATH" != "Not Found" ] && [ -e "$FINAL_OUTPUT_PATH" ]; then
-        echo -e "✅ AppImage created at: \033[1;36m$FINAL_OUTPUT_PATH\033[0m"
-        echo -e "\n\033[1;33mIMPORTANT:\033[0m This AppImage requires \033[1;36mAppImageLauncher\033[0m for proper desktop integration"
-        echo -e "and to handle the \`claude://\` login process correctly."
-        echo -e "\n🚀 To install AppImageLauncher (v2.2.0 for amd64):"
-        echo -e "   1. Download:"
-        echo -e "      \033[1;32mwget https://github.com/TheAssassin/AppImageLauncher/releases/download/v2.2.0/appimagelauncher_2.2.0-travis995.0f91801.bionic_amd64.deb -O /tmp/appimagelauncher.deb\033[0m"
-        echo -e "       - or appropriate package from here: \033[1;34mhttps://github.com/TheAssassin/AppImageLauncher/releases/latest\033[0m"
-        echo -e "   2. Install the package:"
-        echo -e "      \033[1;32msudo dpkg -i /tmp/appimagelauncher.deb\033[0m"
-        echo -e "   3. Fix any missing dependencies:"
-        echo -e "      \033[1;32msudo apt --fix-broken install\033[0m"
-        echo -e "\n   After installation, simply double-click \033[1;36m$FINAL_OUTPUT_PATH\033[0m and choose 'Integrate and run'."
-    else
-        echo -e "⚠️ AppImage file not found. Cannot provide usage instructions."
-    fi
+# --- Cleanup ---
+if [ "$CLEANUP_ACTION" = "yes" ]; then
+    echo "🧹 Cleaning up..."
+    rm -rf "$WORK_DIR"
 fi
-echo -e "\033[1;34m======================\033[0m"
 
-exit 0
+echo -e "\n✅ Build complete!"
+echo -e "\nTo install the package, run:"
+echo -e "  \033[1;32msudo pacman -U $FINAL_OUTPUT_PATH\033[0m"
