@@ -36,7 +36,7 @@ jobs:
         
     - name: Install build dependencies
       run: |
-        pacman -S --noconfirm nodejs npm p7zip wget icoutils imagemagick
+        pacman -S --noconfirm nodejs npm p7zip wget icoutils imagemagick electron asar
         
     - name: Build package
       run: |
