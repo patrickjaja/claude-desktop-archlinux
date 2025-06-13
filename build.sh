@@ -232,6 +232,11 @@ mkdir -p "$APP_STAGING_DIR/node_modules/electron"
 cp -a "$WORK_DIR/node_modules/electron"/* "$APP_STAGING_DIR/node_modules/electron/"
 chmod +x "$APP_STAGING_DIR/node_modules/electron/dist/electron"
 
+# Copy translation files to staging directory
+echo "Copying translation files..."
+mkdir -p "$APP_STAGING_DIR/locales"
+cp "$CLAUDE_EXTRACT_DIR/lib/net45/resources/"*.json "$APP_STAGING_DIR/locales/"
+
 cd "$PROJECT_ROOT"
 
 # --- Build Arch Package ---
@@ -262,6 +267,19 @@ package() {
     
     # Copy application files
     cp -r "$APP_STAGING_DIR"/* "\$pkgdir/usr/lib/\$pkgname/"
+    
+    # Copy translation files to multiple possible Electron locations
+    # Try common Electron installation paths (skip symlinks)
+    for electron_dir in /usr/lib/electron36 /usr/lib/electron34; do
+        if [ -d "\$electron_dir" ] && [ ! -L "\$electron_dir" ]; then
+            install -dm755 "\$pkgdir\$electron_dir/resources"
+            for json_file in "\$pkgdir/usr/lib/\$pkgname/locales/"*.json; do
+                if [ -f "\$json_file" ]; then
+                    install -m644 "\$json_file" "\$pkgdir\$electron_dir/resources/"
+                fi
+            done
+        fi
+    done
     
     # Create launcher script
     cat > "\$pkgdir/usr/bin/\$pkgname" << 'LAUNCHER'
@@ -308,7 +326,7 @@ cd "$PROJECT_ROOT"
 # --- Cleanup ---
 if [ "$CLEANUP_ACTION" = "yes" ]; then
     echo "🧹 Cleaning up..."
-    rm -rf "$WORK_DIR"
+#    rm -rf "$WORK_DIR"
 fi
 
 echo -e "\n✅ Build complete!"
