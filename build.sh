@@ -244,6 +244,10 @@ echo "📦 Building Arch Linux package..."
 PKGBUILD_DIR="$WORK_DIR/pkgbuild"
 mkdir -p "$PKGBUILD_DIR"
 
+# Copy necessary files to PKGBUILD directory for makepkg to access
+cp -r "$APP_STAGING_DIR" "$PKGBUILD_DIR/electron-app"
+cp "$WORK_DIR/claude_6_256x256x32.png" "$PKGBUILD_DIR/claude_6_256x256x32.png"
+
 cat > "$PKGBUILD_DIR/PKGBUILD" << EOF
 # Maintainer: $MAINTAINER
 pkgname=$PACKAGE_NAME
@@ -265,8 +269,8 @@ package() {
     install -dm755 "\$pkgdir/usr/share/applications"
     install -dm755 "\$pkgdir/usr/share/icons/hicolor/256x256/apps"
     
-    # Copy application files
-    cp -r "$APP_STAGING_DIR"/* "\$pkgdir/usr/lib/\$pkgname/"
+    # Copy application files from the build directory
+    cp -r "$PKGBUILD_DIR/electron-app"/* "\$pkgdir/usr/lib/\$pkgname/"
     
     # Copy translation files to multiple possible Electron locations
     # Try common Electron installation paths (skip symlinks)
@@ -303,7 +307,7 @@ StartupWMClass=Claude
 DESKTOP
     
     # Install icon
-    install -Dm644 "$WORK_DIR/claude_6_256x256x32.png" "\$pkgdir/usr/share/icons/hicolor/256x256/apps/\$pkgname.png"
+    install -Dm644 "$PKGBUILD_DIR/claude_6_256x256x32.png" "\$pkgdir/usr/share/icons/hicolor/256x256/apps/\$pkgname.png"
 }
 EOF
 

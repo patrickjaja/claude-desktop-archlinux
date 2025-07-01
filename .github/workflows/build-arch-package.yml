@@ -53,8 +53,12 @@ jobs:
       id: package_info
       run: |
         PKG_FILE=$(find . -maxdepth 1 -name "*.pkg.tar.*" | head -n 1)
+        if [ -z "$PKG_FILE" ]; then
+          echo "❌ No package file found!"
+          exit 1
+        fi
         echo "package_file=$PKG_FILE" >> $GITHUB_OUTPUT
-        echo "package_name=$(basename $PKG_FILE)" >> $GITHUB_OUTPUT
+        echo "package_name=$(basename "$PKG_FILE")" >> $GITHUB_OUTPUT
         
         # Extract version from package filename
         VERSION=$(echo "$PKG_FILE" | grep -oP 'claude-desktop-\K[0-9]+\.[0-9]+\.[0-9]+')
