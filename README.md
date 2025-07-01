@@ -2,6 +2,12 @@
 
 This repository provides a build script to create Claude Desktop packages for Arch Linux.
 
+## Easy way
+ - Download latest .pkg.tar.zst, and install via sudo pacman -U /home/patrickjaja/development/claude-desktop-archlinux/claude-desktop-0.11.6-1-x86_64.pkg.tar.zst
+
+## Manually build (just execute ./build.sh)
+[build.sh](build.sh)
+
 ## Prerequisites
 
 The build script will automatically install required dependencies via pacman:
