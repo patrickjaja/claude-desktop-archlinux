@@ -214,10 +214,13 @@ function createTray() {
   try {
     // Try different tray icon paths
     const iconPaths = [
+      path.join(__dirname, '../../../tray-icons/TrayIconTemplate.png'),
+      path.join(__dirname, '../../../tray-icons/TrayIconTemplate-Dark.png'),
       path.join(__dirname, '../../resources/TrayIconTemplate.png'),
       path.join(__dirname, '../../resources/TrayIconTemplate-Dark.png'),
       path.join(process.resourcesPath || '', 'TrayIconTemplate.png'),
-      path.join(app.getAppPath(), 'resources', 'TrayIconTemplate.png')
+      path.join(app.getAppPath(), 'resources', 'TrayIconTemplate.png'),
+      path.join(app.getAppPath(), 'tray-icons', 'TrayIconTemplate.png')
     ];
     
     let iconPath = null;
@@ -377,6 +380,14 @@ package() {
     
     # Copy application files from the build directory
     cp -r "$PKGBUILD_DIR/electron-app"/* "\$pkgdir/usr/lib/\$pkgname/"
+    
+    # Copy tray icons to accessible location outside asar for Linux tray support
+    install -dm755 "\$pkgdir/usr/lib/\$pkgname/tray-icons"
+    for tray_icon in "\$pkgdir/usr/lib/\$pkgname/app.asar.contents/resources/TrayIcon"*.png; do
+        if [ -f "\$tray_icon" ]; then
+            cp "\$tray_icon" "\$pkgdir/usr/lib/\$pkgname/tray-icons/"
+        fi
+    done
     
     # Copy translation files to all Electron installation paths
     # Include all electron versions including the current one (electron37)
