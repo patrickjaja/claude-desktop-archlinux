@@ -197,12 +197,118 @@ cp -a "lib/net45/resources/app.asar.unpacked" "$APP_STAGING_DIR/"
 cd "$APP_STAGING_DIR"
 "$ASAR_EXEC" extract app.asar app.asar.contents
 
-# Create stub native module
+# Create stub native module with better Linux tray support
 cat > app.asar.contents/node_modules/claude-native/index.js << 'EOF'
 // Stub implementation of claude-native using KeyboardKey enum values
+const { app, Tray, Menu, nativeImage, Notification } = require('electron');
+const path = require('path');
+
 const KeyboardKey = { Backspace: 43, Tab: 280, Enter: 261, Shift: 272, Control: 61, Alt: 40, CapsLock: 56, Escape: 85, Space: 276, PageUp: 251, PageDown: 250, End: 83, Home: 154, LeftArrow: 175, UpArrow: 282, RightArrow: 262, DownArrow: 81, Delete: 79, Meta: 187 };
 Object.freeze(KeyboardKey);
-module.exports = { getWindowsVersion: () => "10.0.0", setWindowEffect: () => {}, removeWindowEffect: () => {}, getIsMaximized: () => false, flashFrame: () => {}, clearFlashFrame: () => {}, showNotification: () => {}, setProgressBar: () => {}, clearProgressBar: () => {}, setOverlayIcon: () => {}, clearOverlayIcon: () => {}, KeyboardKey };
+
+let tray = null;
+
+function createTray() {
+  if (tray) return tray;
+  
+  try {
+    // Try different tray icon paths
+    const iconPaths = [
+      path.join(__dirname, '../../resources/TrayIconTemplate.png'),
+      path.join(__dirname, '../../resources/TrayIconTemplate-Dark.png'),
+      path.join(process.resourcesPath || '', 'TrayIconTemplate.png'),
+      path.join(app.getAppPath(), 'resources', 'TrayIconTemplate.png')
+    ];
+    
+    let iconPath = null;
+    for (const p of iconPaths) {
+      try {
+        if (require('fs').existsSync(p)) {
+          iconPath = p;
+          break;
+        }
+      } catch (e) {
+        // Continue to next path
+      }
+    }
+    
+    if (iconPath) {
+      const icon = nativeImage.createFromPath(iconPath);
+      if (!icon.isEmpty()) {
+        tray = new Tray(icon);
+        tray.setToolTip('Claude Desktop');
+        
+        const contextMenu = Menu.buildFromTemplate([
+          { label: 'Show Claude', click: () => {
+            const windows = require('electron').BrowserWindow.getAllWindows();
+            if (windows.length > 0) {
+              windows[0].show();
+            }
+          }},
+          { type: 'separator' },
+          { label: 'Quit', click: () => app.quit() }
+        ]);
+        
+        tray.setContextMenu(contextMenu);
+        tray.on('click', () => {
+          const windows = require('electron').BrowserWindow.getAllWindows();
+          if (windows.length > 0) {
+            windows[0].isVisible() ? windows[0].hide() : windows[0].show();
+          }
+        });
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to create tray icon:', error);
+  }
+  
+  return tray;
+}
+
+// Enhanced notification support
+function showNotification(title, body, options = {}) {
+  try {
+    if (Notification.isSupported()) {
+      const notification = new Notification({
+        title: title || 'Claude Desktop',
+        body: body || '',
+        icon: options.icon,
+        silent: options.silent || false
+      });
+      notification.show();
+      return true;
+    }
+  } catch (error) {
+    console.warn('Failed to show notification:', error);
+  }
+  return false;
+}
+
+module.exports = { 
+  getWindowsVersion: () => "10.0.0", 
+  setWindowEffect: () => {}, 
+  removeWindowEffect: () => {}, 
+  getIsMaximized: () => false, 
+  flashFrame: () => {}, 
+  clearFlashFrame: () => {}, 
+  showNotification, 
+  setProgressBar: () => {}, 
+  clearProgressBar: () => {}, 
+  setOverlayIcon: () => {}, 
+  clearOverlayIcon: () => {}, 
+  createTray,
+  getTray: () => tray,
+  KeyboardKey 
+};
+
+// Auto-create tray when app is ready if not in packaged mode
+if (app && app.whenReady) {
+  app.whenReady().then(() => {
+    if (!app.isPackaged) {
+      setTimeout(createTray, 1000);
+    }
+  });
+}
 EOF
 
 # Copy resources
@@ -272,16 +378,21 @@ package() {
     # Copy application files from the build directory
     cp -r "$PKGBUILD_DIR/electron-app"/* "\$pkgdir/usr/lib/\$pkgname/"
     
-    # Copy translation files to multiple possible Electron locations
-    # Try common Electron installation paths (skip symlinks)
-    for electron_dir in /usr/lib/electron36 /usr/lib/electron34; do
-        if [ -d "\$electron_dir" ] && [ ! -L "\$electron_dir" ]; then
-            install -dm755 "\$pkgdir\$electron_dir/resources"
-            for json_file in "\$pkgdir/usr/lib/\$pkgname/locales/"*.json; do
-                if [ -f "\$json_file" ]; then
-                    install -m644 "\$json_file" "\$pkgdir\$electron_dir/resources/"
-                fi
-            done
+    # Copy translation files to all Electron installation paths
+    # Include all electron versions including the current one (electron37)
+    for electron_dir in /usr/lib/electron*; do
+        # Check if it's a directory (real or symlink target)
+        if [ -d "\$electron_dir" ]; then
+            # Get the real directory if it's a symlink
+            real_electron_dir=\$(realpath "\$electron_dir" 2>/dev/null || echo "\$electron_dir")
+            if [ -d "\$real_electron_dir" ]; then
+                install -dm755 "\$pkgdir\$real_electron_dir/resources"
+                for json_file in "\$pkgdir/usr/lib/\$pkgname/locales/"*.json; do
+                    if [ -f "\$json_file" ]; then
+                        install -m644 "\$json_file" "\$pkgdir\$real_electron_dir/resources/"
+                    fi
+                done
+            fi
         fi
     done
     
