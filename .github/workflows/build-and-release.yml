@@ -249,11 +249,13 @@ jobs:
         AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
       run: |
         mkdir -p ~/.ssh
-        echo "$AUR_SSH_KEY" > ~/.ssh/aur
+
+        # Write SSH key and ensure proper line endings
+        echo "$AUR_SSH_KEY" | tr -d '\r' > ~/.ssh/aur
         chmod 600 ~/.ssh/aur
 
         # Add AUR host key
-        ssh-keyscan -t rsa,ecdsa,ed25519 aur.archlinux.org >> ~/.ssh/known_hosts
+        ssh-keyscan -t rsa,ecdsa,ed25519 aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null
 
         # Create SSH config for AUR
         cat > ~/.ssh/config <<EOF
@@ -263,15 +265,33 @@ jobs:
           IdentityFile ~/.ssh/aur
           StrictHostKeyChecking no
           IdentitiesOnly yes
+          PubkeyAuthentication yes
+          PasswordAuthentication no
         EOF
         chmod 600 ~/.ssh/config
 
-        # Debug: Check SSH key format (first line only)
-        echo "SSH key starts with: $(head -n1 ~/.ssh/aur | cut -c1-30)"
+        # Debug: Check SSH key format
+        echo "=== SSH Key Debug Info ==="
+        echo "SSH key first line: $(head -n1 ~/.ssh/aur)"
+        echo "SSH key last line: $(tail -n1 ~/.ssh/aur)"
+        echo "SSH key line count: $(wc -l < ~/.ssh/aur)"
+        echo "SSH key file size: $(stat -c%s ~/.ssh/aur) bytes"
 
-        # Test SSH connection
-        echo "Testing SSH connection to AUR..."
-        ssh -vT aur@aur.archlinux.org 2>&1 | grep -E "(Authenticated|Permission|debug1: Authentication)" || true
+        # Validate SSH key format
+        if head -n1 ~/.ssh/aur | grep -q "BEGIN.*PRIVATE KEY"; then
+          echo "✓ SSH key format looks correct"
+        else
+          echo "✗ SSH key format might be incorrect"
+          echo "Expected: -----BEGIN [RSA/OPENSSH] PRIVATE KEY-----"
+        fi
+
+        # Test SSH connection with full debug output
+        echo "=== Testing SSH connection to AUR ==="
+        ssh -vvT aur@aur.archlinux.org 2>&1 | tail -20 || true
+
+        # Alternative test using GIT_SSH_COMMAND
+        echo "=== Testing with GIT_SSH_COMMAND ==="
+        GIT_SSH_COMMAND="ssh -vv -i ~/.ssh/aur" git ls-remote ssh://aur@aur.archlinux.org/claude-desktop-bin.git 2>&1 | head -20 || true
 
     - name: Deploy to AUR
       env:
@@ -282,25 +302,34 @@ jobs:
         git config --global user.name "$AUR_USERNAME"
         git config --global user.email "$AUR_EMAIL"
 
-        # Set GIT_SSH_COMMAND to use our specific key
-        export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur -o StrictHostKeyChecking=no"
+        # Set GIT_SSH_COMMAND to use our specific key with verbose output
+        export GIT_SSH_COMMAND="ssh -vv -i ~/.ssh/aur -o StrictHostKeyChecking=no"
 
-        # Debug: Show git version and config
+        # Debug: Show environment and configs
+        echo "=== Git Configuration ==="
         git --version
+        echo "Git user.name: $(git config --global user.name)"
+        echo "Git user.email: $(git config --global user.email)"
         echo "Git SSH command: $GIT_SSH_COMMAND"
 
-        # Clone AUR repository
-        echo "Cloning AUR repository..."
-        if ! git clone ssh://aur@aur.archlinux.org/claude-desktop-bin.git aur-repo; then
-          echo "Clone failed, checking if it's a new package..."
-          # For new packages, we need to push an initial commit first
-          mkdir aur-repo
+        # Clone AUR repository with verbose output
+        echo "=== Cloning AUR repository ==="
+        if ! GIT_SSH_COMMAND="ssh -vv -i ~/.ssh/aur" git clone ssh://aur@aur.archlinux.org/claude-desktop-bin.git aur-repo 2>&1; then
+          echo "Clone failed. Full error output above."
+          echo "Creating new repository locally..."
+          mkdir -p aur-repo
           cd aur-repo
           git init
           git remote add origin ssh://aur@aur.archlinux.org/claude-desktop-bin.git
         else
           cd aur-repo
         fi
+
+        # Check current state
+        echo "=== Repository State ==="
+        pwd
+        git remote -v
+        git status
 
         # Update PKGBUILD with correct version
         cp ../PKGBUILD.template PKGBUILD
@@ -310,17 +339,31 @@ jobs:
         cp ../.SRCINFO .SRCINFO
 
         # Show what we're about to commit
-        echo "Files to commit:"
+        echo "=== Files to commit ==="
         ls -la PKGBUILD .SRCINFO
 
-        # Commit and push
+        # Commit changes
         git add PKGBUILD .SRCINFO
-        git commit -m "Update to version ${{ needs.build.outputs.version }}" || echo "No changes to commit"
-
-        # Try to push
-        echo "Pushing to AUR..."
-        if ! git push -v origin master; then
-          echo "Push to master failed, trying HEAD:master..."
-          git push -v origin HEAD:master
+        if git diff --cached --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "Update to version ${{ needs.build.outputs.version }}"
+          echo "Committed changes"
         fi
+
+        # Try to push with full debug output
+        echo "=== Pushing to AUR ==="
+        echo "Attempting push to origin/master..."
+        if ! GIT_SSH_COMMAND="ssh -vv -i ~/.ssh/aur" git push origin master 2>&1; then
+          echo "Push to master failed. Trying HEAD:master..."
+          if ! GIT_SSH_COMMAND="ssh -vv -i ~/.ssh/aur" git push origin HEAD:master 2>&1; then
+            echo "Both push attempts failed. SSH key may not be authorized for this repository."
+            echo "Please ensure:"
+            echo "1. The SSH key is added to your AUR account"
+            echo "2. The AUR_USERNAME matches the AUR account"
+            echo "3. The repository 'claude-desktop-bin' exists or you have permission to create it"
+            exit 1
+          fi
+        fi
+        echo "Successfully pushed to AUR!"
 
