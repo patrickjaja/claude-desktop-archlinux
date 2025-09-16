@@ -40,6 +40,7 @@ jobs:
     outputs:
       version: ${{ steps.build.outputs.version }}
       package_file: ${{ steps.build.outputs.package_file }}
+      should_release: ${{ steps.check_version.outputs.should_release }}
 
     steps:
     - name: Setup Arch Linux environment
@@ -98,6 +99,26 @@ jobs:
           echo "srcinfo_exists=false" >> $GITHUB_OUTPUT
         fi
 
+    - name: Check if version is new
+      id: check_version
+      run: |
+        VERSION="${{ steps.build.outputs.version }}"
+        TAG_NAME="${VERSION}-1"
+
+        # Install GitHub CLI
+        pacman -S --noconfirm github-cli
+
+        # Check if release already exists
+        if gh release view "$TAG_NAME" --repo ${{ github.repository }} > /dev/null 2>&1; then
+          echo "Version $VERSION already released"
+          echo "should_release=false" >> $GITHUB_OUTPUT
+        else
+          echo "Version $VERSION is new, will create release"
+          echo "should_release=true" >> $GITHUB_OUTPUT
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Validate package
       run: |
         # Basic package validation
@@ -119,20 +140,49 @@ jobs:
         name: build-logs
         path: build/
 
+    - name: Summary
+      run: |
+        echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "- **Version:** ${{ steps.build.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Package:** ${{ steps.build.outputs.package_name }}" >> $GITHUB_STEP_SUMMARY
+        if [ "${{ steps.check_version.outputs.should_release }}" == "true" ]; then
+          echo "- **Status:** ✅ New version - will create release" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- **Status:** ℹ️ Version already released - skipping release creation" >> $GITHUB_STEP_SUMMARY
+        fi
+
   release:
     needs: build
     runs-on: ubuntu-latest
     if: |
-      startsWith(github.ref, 'refs/tags/') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true')
+      needs.build.outputs.should_release == 'true' && (
+        startsWith(github.ref, 'refs/tags/') ||
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true')
+      )
 
     steps:
+    - name: Check if release exists
+      id: check_release
+      run: |
+        TAG_NAME="${{ needs.build.outputs.version }}-1"
+        if gh release view "$TAG_NAME" --repo ${{ github.repository }} > /dev/null 2>&1; then
+          echo "exists=true" >> $GITHUB_OUTPUT
+          echo "Release $TAG_NAME already exists"
+        else
+          echo "exists=false" >> $GITHUB_OUTPUT
+          echo "Release $TAG_NAME does not exist, will create"
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Download artifacts
+      if: steps.check_release.outputs.exists != 'true'
       uses: actions/download-artifact@v4
       with:
         name: claude-desktop-arch-${{ needs.build.outputs.version }}
 
     - name: Create Release
+      if: steps.check_release.outputs.exists != 'true'
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ needs.build.outputs.version }}-1
@@ -180,8 +230,10 @@ jobs:
     needs: [build, release]
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_to_aur == 'true') ||
-      (startsWith(github.ref, 'refs/tags/') && contains(github.ref, 'aur'))
+      needs.build.outputs.should_release == 'true' && (
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_to_aur == 'true') ||
+        (startsWith(github.ref, 'refs/tags/') && contains(github.ref, 'aur'))
+      )
 
     steps:
     - name: Checkout code
