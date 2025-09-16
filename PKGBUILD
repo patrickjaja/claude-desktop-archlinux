@@ -113,11 +113,19 @@ EOF
         sed -i -E 's/if\(!([a-zA-Z]+)[[:space:]]*&&[[:space:]]*([a-zA-Z]+)\)/if(\1 \&\& \2)/g' "$js_file"
     fi
 
-    # Fix locale path - replace electron resources path with app's locale path
-    find app.asar.contents -name "*.js" -type f -exec sed -i \
-        -e 's|/usr/lib/electron[0-9]*/resources/|/usr/lib/claude-desktop-bin-arch/locales/|g' \
-        -e 's|process\.resourcesPath,"en-US\.json"|"/usr/lib/claude-desktop-bin-arch/locales","en-US.json"|g' \
-        -e 's|process\.resourcesPath,"\([^"]*\.json\)"|"/usr/lib/claude-desktop-bin-arch/locales","\1"|g' {} \;
+    # Fix locale path in the minified code
+    # The app tries to load locales from electron's resources directory
+    # We need to redirect it to our package's locales directory
+    find app.asar.contents -name "*.js" -type f | while read -r file; do
+        # Check if file contains the problematic pattern
+        if grep -q "resources.*\.json\|\.resourcesPath" "$file" 2>/dev/null; then
+            sed -i \
+                -e 's|path\.join(.*\.resourcesPath,\([^)]*\))|path.join("/usr/lib/claude-desktop-bin-arch/locales",\1)|g' \
+                -e 's|\.resourcesPath|"/usr/lib/claude-desktop-bin-arch/locales"|g' \
+                -e 's|process\.resourcesPath|"/usr/lib/claude-desktop-bin-arch/locales"|g' \
+                "$file" 2>/dev/null || true
+        fi
+    done
 
     # Repack app.asar
     asar pack app.asar.contents app.asar
