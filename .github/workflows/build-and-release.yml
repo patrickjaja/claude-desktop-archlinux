@@ -251,20 +251,27 @@ jobs:
         mkdir -p ~/.ssh
         echo "$AUR_SSH_KEY" > ~/.ssh/aur
         chmod 600 ~/.ssh/aur
-        ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts
+
+        # Add AUR host key
+        ssh-keyscan -t rsa,ecdsa,ed25519 aur.archlinux.org >> ~/.ssh/known_hosts
 
         # Create SSH config for AUR
         cat > ~/.ssh/config <<EOF
         Host aur.archlinux.org
-          User aur
           HostName aur.archlinux.org
+          User aur
           IdentityFile ~/.ssh/aur
           StrictHostKeyChecking no
+          IdentitiesOnly yes
         EOF
         chmod 600 ~/.ssh/config
 
+        # Debug: Check SSH key format (first line only)
+        echo "SSH key starts with: $(head -n1 ~/.ssh/aur | cut -c1-30)"
+
         # Test SSH connection
-        ssh -T aur@aur.archlinux.org || true
+        echo "Testing SSH connection to AUR..."
+        ssh -vT aur@aur.archlinux.org 2>&1 | grep -E "(Authenticated|Permission|debug1: Authentication)" || true
 
     - name: Deploy to AUR
       env:
@@ -275,15 +282,25 @@ jobs:
         git config --global user.name "$AUR_USERNAME"
         git config --global user.email "$AUR_EMAIL"
 
-        # Clone AUR repository using SSH config
-        git clone ssh://aur@aur.archlinux.org/claude-desktop-bin.git aur-repo || {
-          # If repo doesn't exist, create it
-          git init aur-repo
-          cd aur-repo
-          git remote add origin ssh://aur@aur.archlinux.org/claude-desktop-bin.git
-        }
+        # Set GIT_SSH_COMMAND to use our specific key
+        export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur -o StrictHostKeyChecking=no"
 
-        cd aur-repo
+        # Debug: Show git version and config
+        git --version
+        echo "Git SSH command: $GIT_SSH_COMMAND"
+
+        # Clone AUR repository
+        echo "Cloning AUR repository..."
+        if ! git clone ssh://aur@aur.archlinux.org/claude-desktop-bin.git aur-repo; then
+          echo "Clone failed, checking if it's a new package..."
+          # For new packages, we need to push an initial commit first
+          mkdir aur-repo
+          cd aur-repo
+          git init
+          git remote add origin ssh://aur@aur.archlinux.org/claude-desktop-bin.git
+        else
+          cd aur-repo
+        fi
 
         # Update PKGBUILD with correct version
         cp ../PKGBUILD.template PKGBUILD
@@ -292,10 +309,18 @@ jobs:
         # Copy .SRCINFO
         cp ../.SRCINFO .SRCINFO
 
-        # Commit and push (SSH config will handle authentication)
+        # Show what we're about to commit
+        echo "Files to commit:"
+        ls -la PKGBUILD .SRCINFO
+
+        # Commit and push
         git add PKGBUILD .SRCINFO
         git commit -m "Update to version ${{ needs.build.outputs.version }}" || echo "No changes to commit"
 
-        # Push with verbose output for debugging
-        git push -v origin master || git push -v origin HEAD:master
+        # Try to push
+        echo "Pushing to AUR..."
+        if ! git push -v origin master; then
+          echo "Push to master failed, trying HEAD:master..."
+          git push -v origin HEAD:master
+        fi
 
