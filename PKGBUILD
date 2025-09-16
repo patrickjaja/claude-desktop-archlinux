@@ -113,19 +113,6 @@ EOF
         sed -i -E 's/if\(!([a-zA-Z]+)[[:space:]]*&&[[:space:]]*([a-zA-Z]+)\)/if(\1 \&\& \2)/g' "$js_file"
     fi
 
-    # Fix locale path in the minified code
-    # The app tries to load locales from electron's resources directory
-    # We need to redirect it to our package's locales directory
-    find app.asar.contents -name "*.js" -type f | while read -r file; do
-        # Check if file contains the problematic pattern
-        if grep -q "resources.*\.json\|\.resourcesPath" "$file" 2>/dev/null; then
-            sed -i \
-                -e 's|path\.join(.*\.resourcesPath,\([^)]*\))|path.join("/usr/lib/claude-desktop-bin-arch/locales",\1)|g' \
-                -e 's|\.resourcesPath|"/usr/lib/claude-desktop-bin-arch/locales"|g' \
-                -e 's|process\.resourcesPath|"/usr/lib/claude-desktop-bin-arch/locales"|g' \
-                "$file" 2>/dev/null || true
-        fi
-    done
 
     # Repack app.asar
     asar pack app.asar.contents app.asar
@@ -140,6 +127,15 @@ package() {
     # Install application files
     install -dm755 "$pkgdir/usr/lib/$pkgname"
     cp -r "$srcdir/app"/* "$pkgdir/usr/lib/$pkgname/"
+
+    # Install locale files to electron37 resources directory
+    # This is where the app expects to find them
+    install -dm755 "$pkgdir/usr/lib/electron37/resources"
+    for locale_file in "$srcdir/app/locales"/*.json; do
+        if [ -f "$locale_file" ]; then
+            install -m644 "$locale_file" "$pkgdir/usr/lib/electron37/resources/"
+        fi
+    done
 
     # Install launcher script
     install -dm755 "$pkgdir/usr/bin"
