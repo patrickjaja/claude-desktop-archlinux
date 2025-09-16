@@ -1,6 +1,8 @@
 name: Build and Release Claude Desktop
 
 on:
+  schedule:
+    - cron: '0 */6 * * *'  # Run every 6 hours to check for updates
   push:
     branches:
       - main
