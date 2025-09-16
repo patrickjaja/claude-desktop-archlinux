@@ -1,6 +1,8 @@
 # Claude Desktop for Arch Linux
 
-This repository provides an automated build script to create Claude Desktop packages for Arch Linux.
+Claude AI Desktop Application (Official Binary - Arch Linux Compatible)
+
+This repository provides an automated build script to create Claude Desktop packages for Arch Linux. It downloads the official Claude binary and adapts it to work seamlessly on Arch Linux systems.
 
 ## Quick Install
 
@@ -58,10 +60,12 @@ The build script automatically detects your system architecture and downloads th
 
 ## CI/CD
 
-GitHub Actions automatically builds and releases new packages when changes are pushed. The workflow:
-1. Builds the package using the latest Claude version
-2. Creates a GitHub release with the `.pkg.tar.zst` file
-3. Updates the AUR package (if configured)
+GitHub Actions automatically builds and releases new packages. The workflow:
+1. Runs every 6 hours to check for new Claude versions
+2. Downloads the latest official Claude installer
+3. Extracts the version and checks if a release already exists
+4. Creates a GitHub release with the `.pkg.tar.zst` file (only for new versions)
+5. Updates the AUR package (if configured)
 
 ## License
 
