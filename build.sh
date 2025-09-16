@@ -16,9 +16,9 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-log_info() { echo -e "${GREEN}✓${NC} $1"; }
-log_warn() { echo -e "${YELLOW}⚠${NC} $1"; }
-log_error() { echo -e "${RED}✗${NC} $1"; exit 1; }
+log_info() { echo -e "${GREEN}✓${NC} $1" >&2; }
+log_warn() { echo -e "${YELLOW}⚠${NC} $1" >&2; }
+log_error() { echo -e "${RED}✗${NC} $1" >&2; exit 1; }
 
 # --- Architecture Detection ---
 detect_architecture() {
@@ -81,7 +81,8 @@ download_claude() {
         log_info "  $CLAUDE_URL"
 
         # Download with progress and error handling
-        if ! wget --show-progress -O "$exe_file" "$CLAUDE_URL"; then
+        wget --show-progress -O "$exe_file" "$CLAUDE_URL" 2>&1 | tee /dev/stderr
+        if [ ${PIPESTATUS[0]} -ne 0 ]; then
             rm -f "$exe_file"  # Remove partial download
             log_error "Failed to download Claude installer from $CLAUDE_URL"
         fi
@@ -130,7 +131,7 @@ build_package() {
     fi
 
     # Show file info for debugging
-    ls -lh "$exe_file" || true
+    ls -lh "$exe_file" >&2 || true
 
     # Extract with output for debugging
     if ! 7z x -y "$exe_file" -o"$extract_dir"; then
