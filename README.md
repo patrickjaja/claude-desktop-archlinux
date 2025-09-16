@@ -1,96 +1,71 @@
 # Claude Desktop for Arch Linux
 
-This repository provides a build script to create Claude Desktop packages for Arch Linux.
+This repository provides an automated build script to create Claude Desktop packages for Arch Linux.
 
-## Easy way
- - Download latest .pkg.tar.zst, and install via sudo pacman -U /home/patrickjaja/development/claude-desktop-archlinux/claude-desktop-0.11.6-1-x86_64.pkg.tar.zst
+## Quick Install
 
-## Manually build (just execute ./build.sh)
-[build.sh](build.sh)
+Download the latest release from [GitHub Releases](https://github.com/patrickjaja/claude-desktop-archlinux/releases) and install:
+```bash
+sudo pacman -U claude-desktop-*.pkg.tar.zst
+```
+
+## Build From Source
+
+```bash
+git clone https://github.com/patrickjaja/claude-desktop-archlinux.git
+cd claude-desktop-archlinux
+./build.sh
+```
 
 ## Prerequisites
 
-The build script will automatically install required dependencies via pacman:
+The build script will check and prompt to install required dependencies:
 - `p7zip` - For extracting Windows installer files
 - `wget` - For downloading Claude installer
-- `icoutils` - For extracting and converting icons
-- `imagemagick` - For image processing
+- `imagemagick` - For icon processing
 - `npm` - For Node.js package management
-- `dpkg` - For building .deb packages (optional)
+- `base-devel` - For makepkg
 
-## Building
+The build script will also automatically install `asar` via npm if not present.
 
-Clone the repository and run the build script:
+## Build Options
 
 ```bash
-git clone https://github.com/yourusername/claude-desktop-archlinux.git
-cd claude-desktop-archlinux
-./build.sh --build pkgbuild --clean yes
+./build.sh [OPTIONS]
 ```
 
-### Build Options
-
-- `--build FORMAT`: Choose build format
-  - `pkgbuild` - Native Arch Linux package (recommended)
-  - `appimage` - Universal Linux AppImage
-  - `deb` - Debian package (requires conversion with debtap)
-- `--clean yes/no`: Clean intermediate build files after completion (default: yes)
+Options:
+- `--keep-build`: Keep build directory after completion (useful for debugging)
 - `--help`: Show help message
 
-### Examples
-
-Build native Arch package:
+Example - keep build files for debugging:
 ```bash
-./build.sh --build pkgbuild
-```
-
-Build AppImage:
-```bash
-./build.sh --build appimage
-```
-
-Keep build files for debugging:
-```bash
-./build.sh --build pkgbuild --clean no
+./build.sh --keep-build
 ```
 
 ## Installation
 
 After building, install the package:
-
-### For PKGBUILD (recommended):
 ```bash
-sudo pacman -U claude-desktop-*.pkg.tar.*
-```
-
-### For AppImage:
-```bash
-chmod +x claude-desktop-*.AppImage
-./claude-desktop-*.AppImage
-```
-
-For desktop integration with AppImage:
-```bash
-yay -S appimagelauncher
-```
-
-### For .deb (requires conversion):
-```bash
-yay -S debtap
-sudo debtap -u
-debtap -q claude-desktop_*.deb
-sudo pacman -U claude-desktop-*.pkg.tar.*
+sudo pacman -U claude-desktop-*.pkg.tar.zst
 ```
 
 ## Architecture Support
 
 The build script automatically detects your system architecture and downloads the appropriate Claude installer:
-- x86_64 (amd64)
-- aarch64 (arm64)
+- `x86_64` (Intel/AMD 64-bit)
+- `aarch64` (ARM 64-bit)
+
+## CI/CD
+
+GitHub Actions automatically builds and releases new packages when changes are pushed. The workflow:
+1. Builds the package using the latest Claude version
+2. Creates a GitHub release with the `.pkg.tar.zst` file
+3. Updates the AUR package (if configured)
 
 ## License
 
-This project is dual-licensed under MIT and Apache 2.0 licenses. See LICENSE-MIT and LICENSE-APACHE files for details.
+This build script is provided as-is for the Arch Linux community.
 
 ## Disclaimer
 

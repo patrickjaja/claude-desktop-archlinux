@@ -1,0 +1,11 @@
+pkgbase = claude-desktop
+	pkgdesc = Claude AI Desktop Application
+	pkgver = 0.13.11
+	pkgrel = 1
+	url = https://claude.ai
+	arch = x86_64
+	license = custom
+	depends = electron
+	depends = nodejs
+
+pkgname = claude-desktop

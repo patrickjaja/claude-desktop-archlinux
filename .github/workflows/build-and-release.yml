@@ -1,0 +1,235 @@
+name: Build and Release Claude Desktop
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+      - '[0-9]+.[0-9]+.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+-[0-9]+'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create GitHub Release'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      deploy_to_aur:
+        description: 'Deploy to AUR'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+      options: --privileged
+
+    outputs:
+      version: ${{ steps.build.outputs.version }}
+      package_file: ${{ steps.build.outputs.package_file }}
+
+    steps:
+    - name: Setup Arch Linux environment
+      run: |
+        # Initialize pacman
+        pacman-key --init
+        pacman-key --populate archlinux
+        pacman -Syu --noconfirm
+
+        # Install base dependencies
+        pacman -S --noconfirm base-devel git sudo
+
+    - name: Create build user
+      run: |
+        useradd -m builduser
+        echo "builduser ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Fix permissions
+      run: chown -R builduser:builduser .
+
+    - name: Install build dependencies
+      run: |
+        pacman -S --noconfirm \
+          nodejs npm \
+          p7zip wget \
+          imagemagick \
+          electron asar
+
+    - name: Build package
+      id: build
+      run: |
+        # Run build as non-root user
+        su - builduser -c "cd $GITHUB_WORKSPACE && ./build.sh --keep-build"
+
+        # Get package info
+        PKG_FILE=$(find . -maxdepth 1 -name "*.pkg.tar.*" | head -1)
+        if [ -z "$PKG_FILE" ]; then
+          echo "❌ No package file found!"
+          exit 1
+        fi
+
+        # Extract version from package filename
+        VERSION=$(echo "$PKG_FILE" | grep -oP 'claude-desktop-\K[0-9]+\.[0-9]+\.[0-9]+')
+
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "package_file=$PKG_FILE" >> $GITHUB_OUTPUT
+        echo "package_name=$(basename "$PKG_FILE")" >> $GITHUB_OUTPUT
+
+        # Also output the .SRCINFO if it exists
+        if [ -f ".SRCINFO" ]; then
+          echo "srcinfo_exists=true" >> $GITHUB_OUTPUT
+        else
+          echo "srcinfo_exists=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Validate package
+      run: |
+        # Basic package validation
+        namcap ${{ steps.build.outputs.package_file }} || true
+
+    - name: Upload package artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: claude-desktop-arch-${{ steps.build.outputs.version }}
+        path: |
+          ${{ steps.build.outputs.package_file }}
+          .SRCINFO
+          PKGBUILD.template
+
+    - name: Upload build logs
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-logs
+        path: build/
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: |
+      startsWith(github.ref, 'refs/tags/') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true')
+
+    steps:
+    - name: Download artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: claude-desktop-arch-${{ needs.build.outputs.version }}
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ needs.build.outputs.version }}-1
+        name: Claude Desktop ${{ needs.build.outputs.version }}-1
+        files: |
+          *.pkg.tar.*
+          .SRCINFO
+          PKGBUILD.template
+        body: |
+          # Claude Desktop ${{ needs.build.outputs.version }}-1 for Arch Linux
+
+          ## Installation
+
+          ### Direct Download
+          ```bash
+          wget https://github.com/${{ github.repository }}/releases/download/${{ needs.build.outputs.version }}-1/claude-desktop-${{ needs.build.outputs.version }}-1-x86_64.pkg.tar.zst
+          sudo pacman -U claude-desktop-${{ needs.build.outputs.version }}-1-x86_64.pkg.tar.zst
+          ```
+
+          ### From AUR (when available)
+          ```bash
+          yay -S claude-desktop-bin
+          # or
+          paru -S claude-desktop-bin
+          ```
+
+          ## Requirements
+          - Arch Linux (x86_64 or aarch64)
+          - electron
+          - nodejs
+
+          ## What's New
+          - Automatic version detection from upstream
+          - Simplified build process
+          - Improved Linux compatibility
+
+          ## Checksums
+          Run `sha256sum *.pkg.tar.*` to verify package integrity.
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  deploy-aur:
+    needs: [build, release]
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_to_aur == 'true') ||
+      (startsWith(github.ref, 'refs/tags/') && contains(github.ref, 'aur'))
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: claude-desktop-arch-${{ needs.build.outputs.version }}
+
+    - name: Setup SSH for AUR
+      env:
+        AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+      run: |
+        mkdir -p ~/.ssh
+        echo "$AUR_SSH_KEY" > ~/.ssh/aur
+        chmod 600 ~/.ssh/aur
+        ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+
+    - name: Deploy to AUR
+      env:
+        AUR_USERNAME: ${{ secrets.AUR_USERNAME }}
+        AUR_EMAIL: ${{ secrets.AUR_EMAIL }}
+      run: |
+        # Configure git
+        git config --global user.name "$AUR_USERNAME"
+        git config --global user.email "$AUR_EMAIL"
+
+        # Clone AUR repository
+        export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur"
+        git clone ssh://aur@aur.archlinux.org/claude-desktop-bin.git aur-repo || {
+          # If repo doesn't exist, create it
+          git init aur-repo
+          cd aur-repo
+          git remote add origin ssh://aur@aur.archlinux.org/claude-desktop-bin.git
+        }
+
+        cd aur-repo
+
+        # Update PKGBUILD with correct version
+        cp ../PKGBUILD.template PKGBUILD
+        sed -i "s/VERSION_PLACEHOLDER/${{ needs.build.outputs.version }}/g" PKGBUILD
+
+        # Copy .SRCINFO
+        cp ../.SRCINFO .SRCINFO
+
+        # Commit and push
+        git add PKGBUILD .SRCINFO
+        git commit -m "Update to version ${{ needs.build.outputs.version }}" || echo "No changes to commit"
+        git push origin master || git push origin HEAD:master
+

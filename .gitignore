@@ -1,21 +1,27 @@
-# Build output
+# Build artifacts
+*.pkg.tar.*
+*.pkg.tar.zst
+*.pkg.tar.xz
+
+# Cache directory
+.cache/
+cache/
+
+# Build directory
 build/
-build_*/
 
-# Dev folder
-.dev/
+# Log files
+logs/
+*.log
 
-# Reference implementation
-reference/
+# Windows executables
+*.exe
 
-# Node modules
-node_modules/
+# Temporary files
+*.tmp
+*~
+.*.swp
 
-# OS-specific files
-.DS_Store
-Thumbs.db
-
-*.AppImage
-*.desktop
-*.deb
-.idea
+# IDE files
+.vscode/
+.idea/
