@@ -75,9 +75,23 @@ download_claude() {
 
     if [ -f "$exe_file" ]; then
         log_info "Using cached Claude installer"
+        log_info "Cache file size: $(ls -lh "$exe_file" | awk '{print $5}')"
     else
-        log_info "Downloading Claude Desktop installer..."
-        wget -q --show-progress -O "$exe_file" "$CLAUDE_URL" || log_error "Failed to download Claude"
+        log_info "Downloading Claude Desktop installer from:"
+        log_info "  $CLAUDE_URL"
+
+        # Download with progress and error handling
+        if ! wget --show-progress -O "$exe_file" "$CLAUDE_URL"; then
+            rm -f "$exe_file"  # Remove partial download
+            log_error "Failed to download Claude installer from $CLAUDE_URL"
+        fi
+
+        log_info "Download complete. File size: $(ls -lh "$exe_file" | awk '{print $5}')"
+    fi
+
+    # Verify file exists and has content
+    if [ ! -s "$exe_file" ]; then
+        log_error "Downloaded file is empty or missing: $exe_file"
     fi
 
     echo "$exe_file"
@@ -110,7 +124,18 @@ build_package() {
     mkdir -p "$extract_dir"
 
     # Extract installer
-    7z x -y "$exe_file" -o"$extract_dir" >/dev/null 2>&1 || log_error "Failed to extract installer"
+    log_info "Extracting from: $exe_file"
+    if [ ! -f "$exe_file" ]; then
+        log_error "Installer file not found: $exe_file"
+    fi
+
+    # Show file info for debugging
+    ls -lh "$exe_file" || true
+
+    # Extract with output for debugging
+    if ! 7z x -y "$exe_file" -o"$extract_dir"; then
+        log_error "Failed to extract installer - 7z exit code: $?"
+    fi
 
     # Get version
     VERSION=$(extract_version "$extract_dir")
