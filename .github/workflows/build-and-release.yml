@@ -285,13 +285,13 @@ jobs:
           echo "Expected: -----BEGIN [RSA/OPENSSH] PRIVATE KEY-----"
         fi
 
-        # Test SSH connection with full debug output
+        # Test SSH connection
         echo "=== Testing SSH connection to AUR ==="
-        ssh -vvT aur@aur.archlinux.org 2>&1 | tail -20 || true
+        ssh -T aur@aur.archlinux.org 2>&1 || true
 
         # Alternative test using GIT_SSH_COMMAND
         echo "=== Testing with GIT_SSH_COMMAND ==="
-        GIT_SSH_COMMAND="ssh -vv -i ~/.ssh/aur" git ls-remote ssh://aur@aur.archlinux.org/claude-desktop-bin-arch.git 2>&1 | head -20 || true
+        GIT_SSH_COMMAND="ssh -i ~/.ssh/aur" git ls-remote ssh://aur@aur.archlinux.org/claude-desktop-bin-arch.git 2>&1 || true
 
     - name: Deploy to AUR
       env:
@@ -302,8 +302,8 @@ jobs:
         git config --global user.name "$AUR_USERNAME"
         git config --global user.email "$AUR_EMAIL"
 
-        # Set GIT_SSH_COMMAND to use our specific key with verbose output
-        export GIT_SSH_COMMAND="ssh -vv -i ~/.ssh/aur -o StrictHostKeyChecking=no"
+        # Set GIT_SSH_COMMAND to use our specific key
+        export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur -o StrictHostKeyChecking=no"
 
         # Debug: Show environment and configs
         echo "=== Git Configuration ==="
@@ -312,9 +312,9 @@ jobs:
         echo "Git user.email: $(git config --global user.email)"
         echo "Git SSH command: $GIT_SSH_COMMAND"
 
-        # Clone AUR repository with verbose output
+        # Clone AUR repository
         echo "=== Cloning AUR repository ==="
-        if ! GIT_SSH_COMMAND="ssh -vv -i ~/.ssh/aur" git clone ssh://aur@aur.archlinux.org/claude-desktop-bin-arch.git aur-repo 2>&1; then
+        if ! GIT_SSH_COMMAND="ssh -i ~/.ssh/aur" git clone ssh://aur@aur.archlinux.org/claude-desktop-bin-arch.git aur-repo 2>&1; then
           echo "Clone failed. Full error output above."
           echo "Creating new repository locally..."
           mkdir -p aur-repo
@@ -351,12 +351,12 @@ jobs:
           echo "Committed changes"
         fi
 
-        # Try to push with full debug output
+        # Try to push
         echo "=== Pushing to AUR ==="
         echo "Attempting push to origin/master..."
-        if ! GIT_SSH_COMMAND="ssh -vv -i ~/.ssh/aur" git push origin master 2>&1; then
+        if ! GIT_SSH_COMMAND="ssh -i ~/.ssh/aur" git push origin master 2>&1; then
           echo "Push to master failed. Trying HEAD:master..."
-          if ! GIT_SSH_COMMAND="ssh -vv -i ~/.ssh/aur" git push origin HEAD:master 2>&1; then
+          if ! GIT_SSH_COMMAND="ssh -i ~/.ssh/aur" git push origin HEAD:master 2>&1; then
             echo "Both push attempts failed. SSH key may not be authorized for this repository."
             echo "Please ensure:"
             echo "1. The SSH key is added to your AUR account"
