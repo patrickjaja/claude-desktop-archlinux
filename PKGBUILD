@@ -2,7 +2,7 @@
 # Contributor: Claude Desktop Linux Community
 
 pkgname=claude-desktop-bin-arch
-pkgver=VERSION_PLACEHOLDER
+pkgver=0.13.11
 pkgrel=1
 pkgdesc="Claude AI Desktop Application (Official Binary)"
 arch=('x86_64' 'aarch64')
