@@ -81,8 +81,7 @@ download_claude() {
         log_info "  $CLAUDE_URL"
 
         # Download with progress and error handling
-        wget --show-progress -O "$exe_file" "$CLAUDE_URL" 2>&1 | tee /dev/stderr
-        if [ ${PIPESTATUS[0]} -ne 0 ]; then
+        if ! wget --show-progress -O "$exe_file" "$CLAUDE_URL" >&2; then
             rm -f "$exe_file"  # Remove partial download
             log_error "Failed to download Claude installer from $CLAUDE_URL"
         fi
@@ -352,7 +351,19 @@ main() {
     detect_architecture
     check_dependencies
 
+    log_info "Calling download_claude..."
     local exe_file=$(download_claude)
+    log_info "download_claude returned: $exe_file"
+
+    if [ -z "$exe_file" ]; then
+        log_error "download_claude returned empty path"
+    fi
+
+    if [ ! -f "$exe_file" ]; then
+        log_error "Downloaded file does not exist: $exe_file"
+    fi
+
+    log_info "Starting build_package with: $exe_file"
     build_package "$exe_file"
 
     cleanup
