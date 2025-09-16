@@ -204,9 +204,9 @@ jobs:
 
           ### From AUR (when available)
           ```bash
-          yay -S claude-desktop-bin
+          yay -S claude-desktop-bin-arch
           # or
-          paru -S claude-desktop-bin
+          paru -S claude-desktop-bin-arch
           ```
 
           ## Requirements
@@ -291,7 +291,7 @@ jobs:
 
         # Alternative test using GIT_SSH_COMMAND
         echo "=== Testing with GIT_SSH_COMMAND ==="
-        GIT_SSH_COMMAND="ssh -vv -i ~/.ssh/aur" git ls-remote ssh://aur@aur.archlinux.org/claude-desktop-bin.git 2>&1 | head -20 || true
+        GIT_SSH_COMMAND="ssh -vv -i ~/.ssh/aur" git ls-remote ssh://aur@aur.archlinux.org/claude-desktop-bin-arch.git 2>&1 | head -20 || true
 
     - name: Deploy to AUR
       env:
@@ -314,13 +314,13 @@ jobs:
 
         # Clone AUR repository with verbose output
         echo "=== Cloning AUR repository ==="
-        if ! GIT_SSH_COMMAND="ssh -vv -i ~/.ssh/aur" git clone ssh://aur@aur.archlinux.org/claude-desktop-bin.git aur-repo 2>&1; then
+        if ! GIT_SSH_COMMAND="ssh -vv -i ~/.ssh/aur" git clone ssh://aur@aur.archlinux.org/claude-desktop-bin-arch.git aur-repo 2>&1; then
           echo "Clone failed. Full error output above."
           echo "Creating new repository locally..."
           mkdir -p aur-repo
           cd aur-repo
           git init
-          git remote add origin ssh://aur@aur.archlinux.org/claude-desktop-bin.git
+          git remote add origin ssh://aur@aur.archlinux.org/claude-desktop-bin-arch.git
         else
           cd aur-repo
         fi
@@ -361,7 +361,7 @@ jobs:
             echo "Please ensure:"
             echo "1. The SSH key is added to your AUR account"
             echo "2. The AUR_USERNAME matches the AUR account"
-            echo "3. The repository 'claude-desktop-bin' exists or you have permission to create it"
+            echo "3. The repository 'claude-desktop-bin-arch' exists or you have permission to create it"
             exit 1
           fi
         fi
