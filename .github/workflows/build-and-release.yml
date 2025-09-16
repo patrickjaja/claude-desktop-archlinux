@@ -251,7 +251,20 @@ jobs:
         mkdir -p ~/.ssh
         echo "$AUR_SSH_KEY" > ~/.ssh/aur
         chmod 600 ~/.ssh/aur
-        ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+        ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts
+
+        # Create SSH config for AUR
+        cat > ~/.ssh/config <<EOF
+        Host aur.archlinux.org
+          User aur
+          HostName aur.archlinux.org
+          IdentityFile ~/.ssh/aur
+          StrictHostKeyChecking no
+        EOF
+        chmod 600 ~/.ssh/config
+
+        # Test SSH connection
+        ssh -T aur@aur.archlinux.org || true
 
     - name: Deploy to AUR
       env:
@@ -262,8 +275,7 @@ jobs:
         git config --global user.name "$AUR_USERNAME"
         git config --global user.email "$AUR_EMAIL"
 
-        # Clone AUR repository
-        export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur"
+        # Clone AUR repository using SSH config
         git clone ssh://aur@aur.archlinux.org/claude-desktop-bin.git aur-repo || {
           # If repo doesn't exist, create it
           git init aur-repo
@@ -280,8 +292,10 @@ jobs:
         # Copy .SRCINFO
         cp ../.SRCINFO .SRCINFO
 
-        # Commit and push
+        # Commit and push (SSH config will handle authentication)
         git add PKGBUILD .SRCINFO
         git commit -m "Update to version ${{ needs.build.outputs.version }}" || echo "No changes to commit"
-        git push origin master || git push origin HEAD:master
+
+        # Push with verbose output for debugging
+        git push -v origin master || git push -v origin HEAD:master
 
